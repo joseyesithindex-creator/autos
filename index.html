@@ -107,14 +107,18 @@
             const data = snapshot.data();
             window.appState.expenses = Array.isArray(data.expenses) ? data.expenses : [];
             if (Array.isArray(data.stockVehicles) && data.stockVehicles.length) {
-              window.appState.stockVehicles = data.stockVehicles;
+              const realVehicles = data.stockVehicles.filter(vehicle => vehicle.id !== "veh-demo");
+              window.appState.stockVehicles = realVehicles.length ? realVehicles : window.appState.stockVehicles;
               window.appState.activeVehicleId = data.activeVehicleId || data.stockVehicles[0].id;
             }
             if (typeof data.totalPartnerAdvance === "number") window.appState.totalPartnerAdvance = data.totalPartnerAdvance;
             if (typeof data.monthlyFinanceFee === "number") window.appState.monthlyFinanceFee = data.monthlyFinanceFee;
             if (typeof data.monthlyFinanceDueDay === "number") window.appState.monthlyFinanceDueDay = data.monthlyFinanceDueDay;
+            if (!window.appState.stockVehicles.some(vehicle => vehicle.id === window.appState.activeVehicleId)) {
+              window.appState.activeVehicleId = window.appState.stockVehicles[0].id;
+            }
             renderVehicleSelector();
-            renderAll();
+            switchActiveVehicle(window.appState.activeVehicleId);
           }
           window.updateSyncStatusBadge(true);
         }, function(error) {
@@ -173,8 +177,8 @@
     body {
       background-color: #060B16;
       background-image: 
-        radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.09) 0px, transparent 50%),
-        radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.08) 0px, transparent 50%),
+        radial-gradient(at 0% 0%, rgba(37, 99, 235, 0.18) 0px, transparent 48%),
+        radial-gradient(at 100% 100%, rgba(239, 68, 68, 0.10) 0px, transparent 50%),
         radial-gradient(at 50% 50%, rgba(13, 21, 39, 0.7) 0px, transparent 100%);
       background-attachment: fixed;
       font-family: 'Plus Jakarta Sans', sans-serif;
@@ -212,6 +216,24 @@
     }
     .status-pulse {
       animation: pulse-subtle 2.5s infinite ease-in-out;
+    }
+    .save-drive-track { animation: save-drive-by 1.15s cubic-bezier(.2,.75,.3,1) both; }
+    .save-drive-car { animation: save-car-bounce .22s ease-in-out infinite alternate; }
+    @media (max-width: 639px) {
+      #appShell header > div { align-items: stretch; }
+      #appShell header > div > div:last-child { display: grid; grid-template-columns: auto 1fr; align-items: end; }
+      #appShell header > div > div:last-child > div:first-child { grid-column: 1 / -1; }
+      #appShell header > div > div:last-child > button:last-child { justify-content: center; }
+    }
+    @keyframes save-drive-by {
+      0% { transform: translateX(-35vw) scale(.78); opacity: 0; }
+      12% { opacity: 1; }
+      78% { transform: translateX(65vw) scale(1.08); opacity: 1; }
+      100% { transform: translateX(115vw) scale(1.12); opacity: 0; }
+    }
+    @keyframes save-car-bounce { from { translate: 0 0; } to { translate: 0 -3px; } }
+    @media (prefers-reduced-motion: reduce) {
+      .save-drive-track, .save-drive-car { animation-duration: .01ms; }
     }
   </style>
 </head>
@@ -269,15 +291,19 @@
 
       <!-- Selector de Rol (Roles de la sociedad) -->
       <div class="flex flex-wrap items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
-        <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-1 flex items-center gap-1">
-          <button onclick="setUserRole('Socia')" id="roleBtnSocia" class="touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+        <div class="min-w-0">
+          <div class="mb-1 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-slate-400"><i class="fa-solid fa-user-tag text-sky-300"></i> Quién registra</div>
+          <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-1 flex items-center gap-1">
+          <button onclick="setUserRole('Socia')" id="roleBtnSocia" title="Marca los gastos que registra la socia" class="touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-blue-500/20 text-blue-200 border border-blue-400/50">
             <i class="fa-solid fa-user-gear text-[11px]"></i>
             <span>Socia</span>
           </button>
-          <button onclick="setUserRole('Socio')" id="roleBtnSocio" class="touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-400 hover:text-slate-200">
+          <button onclick="setUserRole('Socio')" id="roleBtnSocio" title="Marca los gastos que registra el socio" class="touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-400 hover:text-slate-200">
             <i class="fa-solid fa-vault text-[11px]"></i>
             <span>Socio</span>
           </button>
+          </div>
+          <p id="currentRoleLabel" class="mt-1 max-w-xs text-[9px] leading-tight text-slate-500">Marca quién registra el gasto; no modifica el reparto.</p>
         </div>
 
         <!-- Sincronización Nube -->
@@ -286,10 +312,10 @@
           <span class="hidden md:inline text-[11px]" id="cloudText">En Vivo</span>
         </button>
 
-        <!-- Botón Tomar Foto Recibo -->
-        <button onclick="triggerReceiptInput()" class="touch-btn px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-extrabold text-xs shadow-glow-emerald flex items-center gap-1.5">
-          <i class="fa-solid fa-camera"></i>
-          <span class="hidden sm:inline">Foto Recibo</span>
+        <!-- Botón destacado para escanear el soporte -->
+        <button onclick="triggerReceiptInput()" aria-label="Tomar foto del soporte" class="touch-btn min-h-11 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-300 via-orange-500 to-red-500 hover:from-amber-200 text-slate-950 font-black text-xs shadow-lg shadow-orange-500/30 ring-2 ring-orange-200/40 flex items-center gap-2">
+          <i class="fa-solid fa-camera text-base"></i>
+          <span>Tomar foto del soporte</span>
         </button>
       </div>
 
@@ -308,7 +334,7 @@
           <span class="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
             <i class="fa-solid fa-stopwatch status-pulse"></i> Tiempo en Stock & Costo Capital
           </span>
-          <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">Fecha de compra por configurar</span>
+          <span id="stockPurchaseDateLabel" class="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">Sin vehículo</span>
         </div>
         <div class="mt-2.5 flex items-baseline justify-between">
           <div>
@@ -330,9 +356,9 @@
       <div class="glass-panel rounded-2xl p-4 sm:p-5 border-l-4 border-l-rose-500 relative overflow-hidden">
         <div class="flex items-center justify-between">
           <span class="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
-            <i class="fa-regular fa-bell status-pulse"></i> Próxima Cuota financiación ($0)
+            <i class="fa-regular fa-bell status-pulse"></i> Próxima Cuota financiación
           </span>
-          <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20">Corte: día configurable</span>
+          <span id="financeDueLabel" class="text-[10px] font-mono px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20">Sin datos</span>
         </div>
         <div class="mt-2.5 flex items-baseline justify-between">
           <div>
@@ -345,7 +371,7 @@
           </div>
         </div>
         <div class="w-full bg-slate-800 rounded-full h-1.5 mt-3 overflow-hidden">
-          <div id="dueProgressBar" class="bg-rose-500 h-full rounded-full transition-all duration-500" style="width: 50%"></div>
+          <div id="dueProgressBar" class="bg-rose-500 h-full rounded-full transition-all duration-500" style="width: 0%"></div>
         </div>
       </div>
 
@@ -356,27 +382,57 @@
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
         <div>
           <div class="flex flex-wrap items-center gap-2">
-            <h2 id="cardVehTitle" class="text-lg sm:text-xl font-extrabold text-white">Vehículo por configurar</h2>
-            <span id="cardVehPlate" class="text-xs font-mono font-black px-2.5 py-1 rounded bg-amber-400 text-slate-950">DEMO</span>
+            <h2 id="cardVehTitle" class="text-lg sm:text-xl font-extrabold text-white">Aún no hay vehículos</h2>
+            <span id="cardVehPlate" class="text-xs font-mono font-black px-2.5 py-1 rounded bg-slate-600 text-white">SIN DATOS</span>
             <span class="text-[11px] font-bold px-2.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-              <i class="fa-solid fa-location-dot mr-1"></i> Ubicación: Ubicación por configurar
+              <i class="fa-solid fa-location-dot mr-1"></i> Ubicación: <span id="cardVehLocation">Sin configurar</span>
             </span>
             <span class="text-[11px] font-mono px-2.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-              SDM - BOGOTÁ D.C.
+            <span id="cardVehTransit">UBICACIÓN PENDIENTE</span>
             </span>
           </div>
           <p class="text-xs text-slate-400 mt-1">
-            Detalles del vehículo por configurar
+            Registra un vehículo para empezar
           </p>
         </div>
 
         <div class="text-right flex items-center gap-3">
           <div class="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-center">
             <div class="text-[10px] font-extrabold uppercase text-emerald-400 tracking-wider">Score Negocio</div>
-            <div class="text-xl font-black text-emerald-400 font-mono">9.2 <span class="text-xs text-emerald-300">/ 10</span></div>
-            <div class="text-[10px] text-amber-300 font-semibold mt-0.5">⭐⭐⭐⭐½ Ganga</div>
+            <div id="businessScore" class="text-xl font-black text-sky-300 font-mono">0 <span class="text-xs text-sky-200">/ 10</span></div>
+            <div id="businessScoreLabel" class="text-[10px] text-slate-400 font-semibold mt-0.5">Sin evaluar</div>
           </div>
         </div>
+      </div>
+
+      <div class="relative mt-4 overflow-hidden rounded-2xl border border-sky-400/20 bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 px-3 sm:px-6 pt-4 pb-1">
+        <div class="absolute inset-x-0 bottom-5 h-12 bg-gradient-to-r from-transparent via-sky-400/10 to-transparent blur-xl"></div>
+        <div class="relative z-10 flex items-center justify-between gap-2">
+          <div>
+            <p class="text-[10px] font-bold uppercase tracking-[.2em] text-sky-300">Vitrina AutoKonta</p>
+            <p id="vehicleVisualCaption" class="mt-1 text-xs text-slate-400">Vista ilustrativa 3D · vehículo por registrar</p>
+          </div>
+          <span class="rounded-full border border-sky-400/20 bg-sky-400/10 px-2.5 py-1 text-[10px] font-bold text-sky-200">GARAGE</span>
+        </div>
+        <svg class="relative z-10 mx-auto mt-1 block w-full max-w-3xl" viewBox="0 0 900 300" role="img" aria-label="Ilustración 3D de un automóvil en una vitrina">
+          <defs>
+            <linearGradient id="carBody" x1="0" y1="0" x2="0.9" y2="1"><stop stop-color="#f8fafc"/><stop offset=".32" stop-color="#94a3b8"/><stop offset=".62" stop-color="#e2e8f0"/><stop offset="1" stop-color="#475569"/></linearGradient>
+            <linearGradient id="carGlass" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7dd3fc" stop-opacity=".9"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+            <linearGradient id="carFront" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#64748b"/><stop offset=".5" stop-color="#f8fafc"/><stop offset="1" stop-color="#334155"/></linearGradient>
+            <filter id="carShadow" x="-30%" y="-100%" width="160%" height="300%"><feGaussianBlur stdDeviation="12"/></filter>
+          </defs>
+          <ellipse cx="450" cy="248" rx="300" ry="24" fill="#020617" opacity=".75" filter="url(#carShadow)"/>
+          <path d="M139 205l30-48c15-23 36-38 68-45l118-24c29-6 58-7 88-3l95 13c25 4 48 16 64 34l38 43 47 17c19 7 30 22 30 42v14H111v-19c0-12 10-22 28-24z" fill="url(#carBody)" stroke="#cbd5e1" stroke-width="4"/>
+          <path d="M258 154l31-35c11-12 23-19 42-23l80-15c18-3 35-3 54 0l56 10c17 3 30 10 41 21l39 42z" fill="url(#carGlass)" stroke="#cbd5e1" stroke-width="4"/>
+          <path d="M408 82l-1 72m62-65 8 65" stroke="#334155" stroke-width="7" opacity=".9"/>
+          <path d="M172 177l90-9m351 9 75 15" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity=".55"/>
+          <path d="M117 200l64-6-13 21-59 4z" fill="#fde68a" stroke="#fff7ed" stroke-width="3"/>
+          <path d="M714 194l39 13-8 15-48-4z" fill="#fb7185" stroke="#fecdd3" stroke-width="3"/>
+          <path d="M336 203h220" stroke="#334155" stroke-width="9" stroke-linecap="round"/>
+          <circle cx="268" cy="222" r="51" fill="#020617" stroke="#475569" stroke-width="7"/><circle cx="268" cy="222" r="27" fill="url(#carFront)" stroke="#cbd5e1" stroke-width="5"/><circle cx="268" cy="222" r="8" fill="#0f172a"/>
+          <circle cx="646" cy="222" r="51" fill="#020617" stroke="#475569" stroke-width="7"/><circle cx="646" cy="222" r="27" fill="url(#carFront)" stroke="#cbd5e1" stroke-width="5"/><circle cx="646" cy="222" r="8" fill="#0f172a"/>
+          <path d="M126 254h630" stroke="#38bdf8" stroke-width="2" opacity=".25"/>
+        </svg>
       </div>
 
       <!-- CRUCE BASES DE DATOS -->
@@ -403,7 +459,7 @@
             <div class="text-[10px] text-slate-400 uppercase font-sans font-bold flex items-center gap-1">
               <i class="fa-solid fa-book text-amber-400"></i> Revista Motor
             </div>
-            <div class="text-base font-extrabold text-white mt-1">$0</div>
+            <div class="text-base font-extrabold text-white mt-1">Sin configurar</div>
             <span class="text-[10px] text-slate-400 font-sans">Guía técnica comercial</span>
           </div>
 
@@ -411,7 +467,7 @@
             <div class="text-[10px] text-slate-400 uppercase font-sans font-bold flex items-center gap-1">
               <i class="fa-solid fa-shield text-purple-400"></i> Guía Fasecolda
             </div>
-            <div class="text-base font-extrabold text-white mt-1">$0</div>
+            <div class="text-base font-extrabold text-white mt-1">Sin configurar</div>
             <span class="text-[10px] text-slate-400 font-sans">Código: sin configurar</span>
           </div>
 
@@ -419,8 +475,8 @@
             <div class="text-[10px] text-emerald-400 uppercase font-sans font-bold flex items-center gap-1">
               <i class="fa-solid fa-money-bill-wave"></i> Compra de Urgencia
             </div>
-            <div class="text-base font-black text-emerald-400 mt-1">$0</div>
-            <span class="text-[10px] text-emerald-300 font-sans font-semibold">Efectivo de contado</span>
+            <div class="text-base font-black text-emerald-400 mt-1">Sin configurar</div>
+            <span class="text-[10px] text-emerald-300 font-sans font-semibold">Dato pendiente</span>
           </div>
         </div>
       </div>
@@ -438,7 +494,7 @@
           </p>
         </div>
         <span id="badgeFondoStatus" class="text-xs font-mono font-bold px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30">
-          Pendiente por rendir
+          Sin datos aún
         </span>
       </div>
 
@@ -473,7 +529,7 @@
     <section class="p-4 rounded-2xl bg-blue-950/20 border border-blue-500/30">
       <div class="flex items-center justify-between mb-2.5">
         <span class="text-xs font-bold uppercase tracking-wider text-blue-300 flex items-center gap-1.5">
-          <i class="fa-solid fa-mug-hot"></i> Caja Menor / Gastos de Calle sin Factura (1 toque)
+          <i class="fa-solid fa-mug-hot"></i> Caja Menor / Gastos de Calle sin Factura
         </span>
         <span class="text-[11px] text-slate-400">Se cargan al carro y no descuentan ganancias</span>
       </div>
@@ -483,7 +539,7 @@
           <span class="text-base">☕</span>
           <div>
             <div class="font-bold text-white">Café Cliente</div>
-            <div class="text-[10px] text-blue-400 font-mono">$0</div>
+            <div class="text-[10px] text-blue-400 font-mono">Agregar monto</div>
           </div>
         </button>
 
@@ -491,7 +547,7 @@
           <span class="text-base">🅿️</span>
           <div>
             <div class="font-bold text-white">Parqueadero</div>
-            <div class="text-[10px] text-blue-400 font-mono">$0</div>
+            <div class="text-[10px] text-blue-400 font-mono">Agregar monto</div>
           </div>
         </button>
 
@@ -499,7 +555,7 @@
           <span class="text-base">🚕</span>
           <div>
             <div class="font-bold text-white">Taxi / Moto Taller</div>
-            <div class="text-[10px] text-blue-400 font-mono">$0</div>
+            <div class="text-[10px] text-blue-400 font-mono">Agregar monto</div>
           </div>
         </button>
 
@@ -507,7 +563,7 @@
           <span class="text-base">🧼</span>
           <div>
             <div class="font-bold text-white">Lavado Rápido</div>
-            <div class="text-[10px] text-blue-400 font-mono">$0</div>
+            <div class="text-[10px] text-blue-400 font-mono">Agregar monto</div>
           </div>
         </button>
 
@@ -873,6 +929,14 @@
   <!-- INPUT OCULTO PARA FOTOS DE CÁMARA -->
   <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden" onchange="handleReceiptFile(event)">
 
+  <div id="saveDriveAnimation" class="fixed inset-x-0 bottom-24 z-[70] hidden overflow-hidden pointer-events-none" aria-live="polite">
+    <div id="saveDriveTrack" class="w-fit flex items-center gap-2 rounded-full border border-sky-300/30 bg-slate-950/90 px-4 py-2 text-sky-100 shadow-xl shadow-sky-500/20">
+      <i class="save-drive-car fa-solid fa-car-side text-2xl text-sky-300 drop-shadow-[0_0_8px_rgba(56,189,248,.8)]"></i>
+      <span class="text-[10px] font-black uppercase tracking-wider">Guardado</span>
+      <span class="h-1 w-8 rounded-full bg-gradient-to-r from-sky-400 to-transparent"></span>
+    </div>
+  </div>
+
 </div>
 
   <!-- ==================== LÓGICA JAVASCRIPT GLOBAL ==================== -->
@@ -887,12 +951,12 @@
       stockVehicles: [
         {
           id: 'veh-demo',
-          title: 'Vehículo por configurar',
-          plate: 'DEMO',
-          city: 'Ubicación por configurar',
+          title: 'Aún no hay vehículos',
+          plate: 'SIN DATOS',
+          city: 'Sin configurar',
           buyPrice: 0,
           targetSalePrice: 0,
-          purchaseDate: new Date().toISOString(),
+          purchaseDate: '',
           marketBenchTuCarro: 'Sin configurar',
           marketBenchMotor: 'Sin configurar',
           marketBenchFasecolda: 'Sin configurar'
@@ -911,15 +975,23 @@
           window.appState.totalPartnerAdvance = Number(parsed.totalPartnerAdvance || 0);
           window.appState.monthlyFinanceFee = Number(parsed.monthlyFinanceFee || 0);
           window.appState.monthlyFinanceDueDay = Number(parsed.monthlyFinanceDueDay || 1);
+          window.appState.currentUserRole = parsed.currentUserRole === 'Socio' ? 'Socio' : 'Socia';
+          const rememberedRole = localStorage.getItem('autokonta_user_role');
+          if (rememberedRole === 'Socia' || rememberedRole === 'Socio') window.appState.currentUserRole = rememberedRole;
           if (parsed.stockVehicles && parsed.stockVehicles.length > 0) {
-            window.appState.stockVehicles = parsed.stockVehicles;
+            const realVehicles = parsed.stockVehicles.filter(vehicle => vehicle.id !== 'veh-demo');
+            if (realVehicles.length) window.appState.stockVehicles = realVehicles;
+          }
+          if (!window.appState.stockVehicles.some(vehicle => vehicle.id === window.appState.activeVehicleId)) {
+            window.appState.activeVehicleId = window.appState.stockVehicles[0].id;
           }
         } catch(e) {}
       }
 
       setTodayDates();
+      setUserRole(window.appState.currentUserRole);
       renderVehicleSelector();
-      renderAll();
+      switchActiveVehicle(window.appState.activeVehicleId);
       startClocks();
     }
 
@@ -944,8 +1016,11 @@
         activeVehicleId: window.appState.activeVehicleId,
         totalPartnerAdvance: window.appState.totalPartnerAdvance,
         monthlyFinanceFee: window.appState.monthlyFinanceFee,
-        monthlyFinanceDueDay: window.appState.monthlyFinanceDueDay
+        monthlyFinanceDueDay: window.appState.monthlyFinanceDueDay,
+        currentUserRole: window.appState.currentUserRole
       }));
+
+      playSaveDriveAnimation();
 
       if (typeof window.pushStateToCloud === 'function') {
         window.pushStateToCloud();
@@ -956,22 +1031,46 @@
       return "$" + Number(Math.round(num || 0)).toLocaleString("es-CO");
     }
 
+    function localDateInputValue(date = new Date()) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+
+    function isDemoVehicle(vehicle = getActiveVehicle()) {
+      return !vehicle || vehicle.id === "veh-demo";
+    }
+
+    function playSaveDriveAnimation() {
+      const overlay = document.getElementById("saveDriveAnimation");
+      const car = document.getElementById("saveDriveTrack");
+      if (!overlay || !car) return;
+      overlay.classList.remove("hidden");
+      car.classList.remove("save-drive-track");
+      void car.offsetWidth;
+      car.classList.add("save-drive-track");
+      clearTimeout(window._saveDriveTimer);
+      window._saveDriveTimer = setTimeout(() => overlay.classList.add("hidden"), 1200);
+    }
+
     function getActiveVehicle() {
       return window.appState.stockVehicles.find(v => v.id === window.appState.activeVehicleId) || window.appState.stockVehicles[0];
     }
 
     function setUserRole(role) {
-      window.appState.currentUserRole = role;
-      const bPat = document.getElementById("roleBtnSocia");
-      const bJos = document.getElementById("roleBtnSocio");
-
-      if (role === 'Socia') {
-        bPat.className = "touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
-        bJos.className = "touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-400 hover:text-slate-200";
-      } else {
-        bJos.className = "touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
-        bPat.className = "touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-400 hover:text-slate-200";
+      window.appState.currentUserRole = role === "Socio" ? "Socio" : "Socia";
+      const activeClasses = "touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-sky-500/20 text-sky-200 border border-sky-400/50";
+      const idleClasses = "touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-400 hover:text-white";
+      const bSocia = document.getElementById("roleBtnSocia");
+      const bSocio = document.getElementById("roleBtnSocio");
+      if (bSocia && bSocio) {
+        bSocia.className = window.appState.currentUserRole === "Socia" ? activeClasses : idleClasses;
+        bSocio.className = window.appState.currentUserRole === "Socio" ? activeClasses : idleClasses;
       }
+      const label = document.getElementById("currentRoleLabel");
+      if (label) label.innerText = `Próximo registro: ${window.appState.currentUserRole}. No cambia el reparto.`;
+      localStorage.setItem('autokonta_user_role', window.appState.currentUserRole);
     }
 
     function switchActiveVehicle(id) {
@@ -979,6 +1078,9 @@
       const v = getActiveVehicle();
       document.getElementById("cardVehTitle").innerText = v.title;
       document.getElementById("cardVehPlate").innerText = v.plate;
+      document.getElementById("cardVehLocation").innerText = v.city || "Sin configurar";
+      document.getElementById("vehicleVisualCaption").innerText = `${v.title} · vista ilustrativa 3D`;
+      document.getElementById("cardVehTransit").innerText = v.city || "UBICACIÓN PENDIENTE";
       document.getElementById("inputSalePrice").value = v.targetSalePrice;
       renderAll();
     }
@@ -989,7 +1091,7 @@
       window.appState.stockVehicles.forEach(v => {
         const opt = document.createElement("option");
         opt.value = v.id;
-        opt.innerText = `${v.plate} - ${v.title}`;
+        opt.innerText = isDemoVehicle(v) ? "Sin vehículos registrados" : `${v.plate} - ${v.title}`;
         if (v.id === window.appState.activeVehicleId) opt.selected = true;
         sel.appendChild(opt);
       });
@@ -1003,8 +1105,20 @@
 
     function updateClocks() {
       const v = getActiveVehicle();
+      const stockLabel = document.getElementById("stockPurchaseDateLabel");
+      const dueLabel = document.getElementById("financeDueLabel");
+      if (isDemoVehicle(v)) {
+        document.getElementById("timerStockDays").innerText = "0d 0h 0m 0s";
+        document.getElementById("timerStockCost").innerText = formatCOP(0);
+        document.getElementById("timerNextDue").innerText = "0d 0h 0m 0s";
+        document.getElementById("dueProgressBar").style.width = "0%";
+        if (stockLabel) stockLabel.innerText = "Sin vehículo";
+        if (dueLabel) dueLabel.innerText = "Sin datos";
+        return;
+      }
       const now = new Date();
       const buyDate = new Date(v.purchaseDate);
+      if (stockLabel) stockLabel.innerText = `Compra: ${new Intl.DateTimeFormat("es-CO").format(buyDate)}`;
 
       // Tiempo en Stock
       const diffMs = Math.max(0, now - buyDate);
@@ -1019,7 +1133,15 @@
       const totalCostAcum = (diffMs / (1000 * 60 * 60 * 24)) * dailyCost;
       document.getElementById("timerStockCost").innerText = formatCOP(totalCostAcum);
 
-      // Cuenta Regresiva Cuota día configurable
+      if (window.appState.monthlyFinanceFee <= 0) {
+        document.getElementById("timerNextDue").innerText = "0d 0h 0m 0s";
+        document.getElementById("dueProgressBar").style.width = "0%";
+        if (dueLabel) dueLabel.innerText = "Sin financiación";
+        return;
+      }
+
+      // Cuenta regresiva al día de pago configurado
+      if (dueLabel) dueLabel.innerText = `Pago: día ${window.appState.monthlyFinanceDueDay}`;
       let targetDue = new Date(now.getFullYear(), now.getMonth(), window.appState.monthlyFinanceDueDay, 23, 59, 59);
       if (now.getDate() > window.appState.monthlyFinanceDueDay) {
         targetDue = new Date(now.getFullYear(), now.getMonth() + 1, window.appState.monthlyFinanceDueDay, 23, 59, 59);
@@ -1041,7 +1163,8 @@
     /* ==================== CÁLCULO Y RENDERIZADO ==================== */
     function renderAll() {
       const v = getActiveVehicle();
-      const currentExpenses = window.appState.expenses.filter(e => !e.vehicleId || e.vehicleId === v.id);
+      const currentExpenses = isDemoVehicle(v) ? [] : window.appState.expenses.filter(e => !e.vehicleId || e.vehicleId === v.id);
+      const demoVehicle = isDemoVehicle(v);
 
       let facturasTotal = 0;
       let pettyTotal = 0;
@@ -1055,26 +1178,28 @@
       });
 
       const totalOperationalCosts = facturasTotal + pettyTotal;
-      const unaccounted = Math.max(0, window.appState.totalPartnerAdvance - totalOperationalCosts);
+      const unaccounted = demoVehicle ? 0 : Math.max(0, window.appState.totalPartnerAdvance - totalOperationalCosts);
 
-      document.getElementById("statTotalGiven").innerText = formatCOP(window.appState.totalPartnerAdvance);
-      document.getElementById("statTotalGivenCard").innerText = formatCOP(window.appState.totalPartnerAdvance);
+      document.getElementById("statTotalGiven").innerText = formatCOP(demoVehicle ? 0 : window.appState.totalPartnerAdvance);
+      document.getElementById("statTotalGivenCard").innerText = formatCOP(demoVehicle ? 0 : window.appState.totalPartnerAdvance);
       document.getElementById("statExpensesFactura").innerText = formatCOP(facturasTotal);
       document.getElementById("statExpensesPetty").innerText = formatCOP(pettyTotal);
       document.getElementById("statExpensesUnaccounted").innerText = formatCOP(unaccounted);
-      document.getElementById("badgeFondoStatus").innerText = unaccounted > 0 ? `Por rendir: ${formatCOP(unaccounted)}` : 'Legalizado 100%';
+      const hasData = !demoVehicle && (currentExpenses.length > 0 || v.buyPrice > 0 || window.appState.totalPartnerAdvance > 0);
+      document.getElementById("badgeFondoStatus").innerText = !hasData ? "Sin datos aún" : unaccounted > 0 ? `Por rendir: ${formatCOP(unaccounted)}` : 'Legalizado 100%';
 
-      const salePrice = parseFloat(document.getElementById("inputSalePrice").value) || v.targetSalePrice;
+      const salePrice = demoVehicle ? 0 : (parseFloat(document.getElementById("inputSalePrice").value) || v.targetSalePrice);
       const now = new Date();
       const buyDate = new Date(v.purchaseDate);
-      const daysElapsed = Math.max(1, Math.floor((now - buyDate) / (1000 * 60 * 60 * 24)));
-      const bankCost = daysElapsed * (window.appState.monthlyFinanceFee / 30);
+      const daysElapsed = demoVehicle ? 0 : Math.max(0, Math.floor((now - buyDate) / (1000 * 60 * 60 * 24)));
+      const bankCost = demoVehicle ? 0 : daysElapsed * (window.appState.monthlyFinanceFee / 30);
 
-      const netProfit = Math.max(0, salePrice - v.buyPrice - bankCost - totalOperationalCosts);
+      const capital = demoVehicle ? 0 : v.buyPrice;
+      const netProfit = Math.max(0, salePrice - capital - bankCost - totalOperationalCosts);
       const halfProfit = netProfit / 2;
 
       document.getElementById("c-sale").innerText = formatCOP(salePrice);
-      document.getElementById("c-capital").innerText = `-${formatCOP(v.buyPrice)}`;
+      document.getElementById("c-capital").innerText = `-${formatCOP(capital)}`;
       document.getElementById("c-bank").innerText = `-${formatCOP(bankCost)}`;
       document.getElementById("c-expenses").innerText = `-${formatCOP(totalOperationalCosts)}`;
       document.getElementById("c-net-profit").innerText = formatCOP(netProfit);
@@ -1082,12 +1207,12 @@
       // Socio
       document.getElementById("c-socio-share").innerText = formatCOP(halfProfit);
       document.getElementById("c-socio-reimburse").innerText = `+${formatCOP(bankCost)}`;
-      document.getElementById("c-socio-total").innerText = formatCOP(v.buyPrice + bankCost + halfProfit);
+      document.getElementById("c-socio-total").innerText = formatCOP(demoVehicle ? 0 : capital + bankCost + halfProfit);
 
       // Socia
       document.getElementById("c-socia-share").innerText = formatCOP(halfProfit);
       document.getElementById("c-socia-advance").innerText = `-${formatCOP(unaccounted)}`;
-      const patNetCheck = Math.max(0, halfProfit - unaccounted);
+      const patNetCheck = demoVehicle ? 0 : Math.max(0, halfProfit - unaccounted);
       document.getElementById("c-socia-net").innerText = formatCOP(patNetCheck);
 
       renderExpensesTable(currentExpenses);
@@ -1115,7 +1240,15 @@
 
         const descCell = document.createElement("td");
         descCell.className = "py-2.5 px-3 font-bold text-white font-sans";
-        descCell.textContent = String(item.desc || "");
+        const description = document.createElement("div");
+        description.textContent = String(item.desc || "");
+        descCell.appendChild(description);
+        if (item.createdBy) {
+          const author = document.createElement("small");
+          author.className = "mt-0.5 block text-[10px] font-medium text-slate-500";
+          author.textContent = `Registró: ${item.createdBy}`;
+          descCell.appendChild(author);
+        }
 
         const categoryCell = document.createElement("td");
         categoryCell.className = "py-2.5 px-3 text-xs text-blue-300 font-sans";
@@ -1154,15 +1287,17 @@
 
     /* ==================== ACCIONES & CAJA MENOR ==================== */
     function quickPettyCash(desc, amount) {
-      const today = new Date().toISOString().split("T")[0];
+      const enteredAmount = Number(prompt(`Valor de ${desc} ($ COP):`, ""));
+      if (!Number.isFinite(enteredAmount) || enteredAmount <= 0) return;
       const newExp = {
         id: 'exp-' + Date.now(),
         vehicleId: window.appState.activeVehicleId,
         desc,
-        amount,
+        amount: enteredAmount,
         cat: 'Caja Menor (Sin Factura)',
-        date: today,
-        hasPhoto: false
+        date: localDateInputValue(),
+        hasPhoto: false,
+        createdBy: window.appState.currentUserRole
       };
       window.appState.expenses.unshift(newExp);
       saveState();
@@ -1186,7 +1321,8 @@
         amount,
         cat,
         date,
-        hasPhoto: hasPhoto === "SI"
+        hasPhoto: hasPhoto === "SI",
+        createdBy: window.appState.currentUserRole
       };
 
       window.appState.expenses.unshift(newExp);
@@ -1213,19 +1349,24 @@
       const targetSalePrice = parseFloat(document.getElementById("nc-target").value);
       const date = document.getElementById("nc-date").value;
 
+      const newVehicleId = 'veh-' + Date.now();
       const newCar = {
-        id: 'veh-' + Date.now(),
+        id: newVehicleId,
         title,
         plate,
         city,
         buyPrice,
         targetSalePrice,
         purchaseDate: date + 'T12:00:00',
-        marketBenchTuCarro: 'En estudio',
-        marketBenchMotor: 'En estudio',
-        marketBenchFasecolda: 'En estudio'
+        marketBenchTuCarro: 'Sin configurar',
+        marketBenchMotor: 'Sin configurar',
+        marketBenchFasecolda: 'Sin configurar'
       };
 
+      if (!window.appState.stockVehicles.some(vehicle => vehicle.id !== "veh-demo")) {
+        window.appState.expenses = window.appState.expenses.map(expense => expense.vehicleId === "veh-demo" ? { ...expense, vehicleId: newVehicleId } : expense);
+      }
+      window.appState.stockVehicles = window.appState.stockVehicles.filter(vehicle => vehicle.id !== "veh-demo");
       window.appState.stockVehicles.push(newCar);
       window.appState.activeVehicleId = newCar.id;
       saveState();
@@ -1286,26 +1427,30 @@
 
       const desc = prompt("Concepto de la factura o recibo fotografiado:", "Traspaso / Taller");
       const val = prompt("Valor pagado en pesos COP:", "150000");
+      const receiptDate = prompt("Fecha que aparece en el soporte (AAAA-MM-DD):", localDateInputValue());
+      const parsedReceiptDate = /^\d{4}-\d{2}-\d{2}$/.test(receiptDate || "") ? new Date(`${receiptDate}T12:00:00`) : null;
+      const validDate = parsedReceiptDate && !Number.isNaN(parsedReceiptDate.getTime()) && localDateInputValue(parsedReceiptDate) === receiptDate;
 
-      if (desc && val && !isNaN(val)) {
-        const today = new Date().toISOString().split("T")[0];
+      if (desc && val && Number(val) > 0 && validDate) {
         window.appState.expenses.unshift({
           id: 'exp-' + Date.now(),
           vehicleId: window.appState.activeVehicleId,
           desc: desc + " (Foto Recibo)",
           amount: parseFloat(val),
           cat: 'Traspaso / Tránsito',
-          date: today,
-          hasPhoto: true
+          date: receiptDate,
+          hasPhoto: true,
+          createdBy: window.appState.currentUserRole
         });
         saveState();
         renderAll();
       }
+      if (desc && val && Number(val) > 0 && !validDate) alert("Escribe la fecha del soporte con el formato AAAA-MM-DD.");
       event.target.value = "";
     }
 
     function setTodayDates() {
-      const today = new Date().toISOString().split("T")[0];
+      const today = localDateInputValue();
       const ed = document.getElementById("exp-date");
       const nd = document.getElementById("nc-date");
       if (ed) ed.value = today;
