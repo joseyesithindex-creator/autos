@@ -13,6 +13,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
 
   <!-- Firebase web configuration is public; access is protected by Authentication and Firestore rules. -->
   <script type="module">
@@ -44,6 +45,7 @@
           totalPartnerAdvance: window.appState.totalPartnerAdvance,
           monthlyFinanceFee: window.appState.monthlyFinanceFee,
           monthlyFinanceDueDay: window.appState.monthlyFinanceDueDay,
+          partners: window.appState.partners,
           lastUpdated: new Date().toISOString(),
           updatedBy: window.appState.currentUserRole
         });
@@ -114,11 +116,13 @@
             if (typeof data.totalPartnerAdvance === "number") window.appState.totalPartnerAdvance = data.totalPartnerAdvance;
             if (typeof data.monthlyFinanceFee === "number") window.appState.monthlyFinanceFee = data.monthlyFinanceFee;
             if (typeof data.monthlyFinanceDueDay === "number") window.appState.monthlyFinanceDueDay = data.monthlyFinanceDueDay;
+            if (data.partners && typeof data.partners === "object") window.appState.partners = normalizePartners(data.partners);
             if (!window.appState.stockVehicles.some(vehicle => vehicle.id === window.appState.activeVehicleId)) {
               window.appState.activeVehicleId = window.appState.stockVehicles[0].id;
             }
             renderVehicleSelector();
             switchActiveVehicle(window.appState.activeVehicleId);
+            renderPartnerProfiles();
           }
           window.updateSyncStatusBadge(true);
         }, function(error) {
@@ -235,6 +239,12 @@
     @media (prefers-reduced-motion: reduce) {
       .save-drive-track, .save-drive-car { animation-duration: .01ms; }
     }
+    .side-drawer { transform: translateX(-105%); transition: transform .25s ease; }
+    .side-drawer.open { transform: translateX(0); }
+    .menu-backdrop { opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility .2s ease; }
+    .menu-backdrop.open { opacity: 1; visibility: visible; }
+    .menu-link { display:flex; width:100%; align-items:center; gap:.75rem; border-radius:.75rem; padding:.7rem .8rem; text-align:left; color:#cbd5e1; font-size:.8rem; font-weight:700; }
+    .menu-link:hover { background:rgba(30,41,59,.8); color:white; }
   </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased selection:bg-emerald-500 selection:text-white pb-24 sm:pb-12">
@@ -270,6 +280,7 @@
       
       <!-- Selector de Vehículo Activo -->
       <div class="flex items-center gap-3 min-w-0">
+        <button onclick="toggleSideMenu(true)" aria-label="Abrir menú" class="touch-btn w-10 h-10 shrink-0 rounded-xl bg-slate-800 hover:bg-blue-700 text-white border border-slate-600 flex items-center justify-center text-lg shadow-lg"><i class="fa-solid fa-bars"></i></button>
         <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-blue-600 flex items-center justify-center text-slate-950 shadow-glow-emerald text-lg font-black">
           <i class="fa-solid fa-car-side"></i>
         </div>
@@ -296,11 +307,11 @@
           <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-1 flex items-center gap-1">
           <button onclick="setUserRole('Socia')" id="roleBtnSocia" title="Marca los gastos que registra la socia" class="touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-blue-500/20 text-blue-200 border border-blue-400/50">
             <i class="fa-solid fa-user-gear text-[11px]"></i>
-            <span>Socia</span>
+            <span id="roleNameSocia">Socia</span>
           </button>
           <button onclick="setUserRole('Socio')" id="roleBtnSocio" title="Marca los gastos que registra el socio" class="touch-btn px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 text-slate-400 hover:text-slate-200">
             <i class="fa-solid fa-vault text-[11px]"></i>
-            <span>Socio</span>
+            <span id="roleNameSocio">Socio</span>
           </button>
           </div>
           <p id="currentRoleLabel" class="mt-1 max-w-xs text-[9px] leading-tight text-slate-500">Marca quién registra el gasto; no modifica el reparto.</p>
@@ -321,6 +332,52 @@
 
     </div>
   </header>
+
+  <div id="menuBackdrop" onclick="toggleSideMenu(false)" class="menu-backdrop fixed inset-0 z-[55] bg-black/65"></div>
+  <aside id="sideDrawer" aria-label="Menú principal" class="side-drawer fixed inset-y-0 left-0 z-[60] w-[min(88vw,380px)] overflow-y-auto border-r border-slate-700 bg-slate-950 shadow-2xl">
+    <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-950/95 px-4 py-4 backdrop-blur">
+      <div><p class="text-lg font-black text-white">Auto<span class="text-emerald-400">Konta</span></p><p class="text-[10px] uppercase tracking-widest text-slate-500">Menú de la sociedad</p></div>
+      <button onclick="toggleSideMenu(false)" aria-label="Cerrar menú" class="w-9 h-9 rounded-lg bg-slate-800 text-slate-300"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <nav class="grid gap-1 p-3" aria-label="Secciones">
+      <button onclick="navigateMenu('home')" class="menu-link"><i class="fa-solid fa-gauge-high text-sky-300"></i> Panel principal</button>
+      <button onclick="navigateMenu('tab-expenses')" class="menu-link"><i class="fa-solid fa-receipt text-amber-300"></i> Gastos y soportes</button>
+      <button onclick="navigateMenu('tab-scanner')" class="menu-link"><i class="fa-solid fa-calculator text-emerald-300"></i> Análisis de compra</button>
+      <button onclick="navigateMenu('tab-waterfall')" class="menu-link"><i class="fa-solid fa-scale-balanced text-violet-300"></i> Reparto 50/50</button>
+    </nav>
+    <section class="mx-3 mb-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
+      <div class="mb-3 flex items-center justify-between"><div><h2 class="text-sm font-extrabold text-white">Perfiles</h2><p class="text-[10px] text-slate-400">Nombre y foto de cada integrante</p></div><i class="fa-solid fa-users text-sky-300"></i></div>
+      <div class="space-y-3">
+        <div class="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+          <div class="flex items-center gap-3">
+            <div class="relative h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-sky-400 bg-slate-800"><img id="profilePhotoSocia" class="hidden h-full w-full object-cover" alt="Foto de la socia"><span id="profileInitialSocia" class="flex h-full w-full items-center justify-center font-black text-sky-200">S</span></div>
+            <div class="min-w-0 flex-1"><label class="mb-1 block text-[10px] text-slate-400" for="profileNameSocia">Perfil de socia</label><input id="profileNameSocia" maxlength="60" class="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-sm text-white" placeholder="Nombre de la socia"></div>
+            <button onclick="document.getElementById('profileFileSocia').click()" class="rounded-lg bg-sky-500/15 px-2.5 py-2 text-xs font-bold text-sky-200"><i class="fa-solid fa-camera"></i></button>
+            <input id="profileFileSocia" class="hidden" type="file" accept="image/*" onchange="handlePartnerPhoto('Socia', event)">
+          </div>
+          <button onclick="selectPartnerProfile('Socia')" class="mt-2 w-full rounded-lg border border-sky-500/30 bg-sky-500/10 py-2 text-xs font-bold text-sky-200">Usar perfil de socia</button>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+          <div class="flex items-center gap-3">
+            <div class="relative h-12 w-12 shrink-0 overflow-hidden rounded-full border-2 border-emerald-400 bg-slate-800"><img id="profilePhotoSocio" class="hidden h-full w-full object-cover" alt="Foto del socio"><span id="profileInitialSocio" class="flex h-full w-full items-center justify-center font-black text-emerald-200">S</span></div>
+            <div class="min-w-0 flex-1"><label class="mb-1 block text-[10px] text-slate-400" for="profileNameSocio">Perfil de socio</label><input id="profileNameSocio" maxlength="60" class="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-2 text-sm text-white" placeholder="Nombre del socio"></div>
+            <button onclick="document.getElementById('profileFileSocio').click()" class="rounded-lg bg-emerald-500/15 px-2.5 py-2 text-xs font-bold text-emerald-200"><i class="fa-solid fa-camera"></i></button>
+            <input id="profileFileSocio" class="hidden" type="file" accept="image/*" onchange="handlePartnerPhoto('Socio', event)">
+          </div>
+          <button onclick="selectPartnerProfile('Socio')" class="mt-2 w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-2 text-xs font-bold text-emerald-200">Usar perfil de socio</button>
+        </div>
+      </div>
+      <button onclick="savePartnerProfiles()" class="touch-btn mt-3 w-full rounded-xl bg-sky-500 py-2.5 text-xs font-black text-slate-950"><i class="fa-solid fa-floppy-disk mr-1"></i>Guardar nombres</button>
+      <p class="mt-2 text-[10px] leading-relaxed text-slate-500">Las fotos se reducen para sincronizarlas con los dos celulares. Usa imágenes pequeñas.</p>
+    </section>
+    <section class="mx-3 mb-6 rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
+      <h2 class="mb-2 text-sm font-extrabold text-white">Documentos</h2>
+      <button onclick="downloadAppData()" class="menu-link"><i class="fa-solid fa-download text-sky-300"></i> Descargar copia de datos (JSON)</button>
+      <button onclick="downloadExpensesCsv()" class="menu-link"><i class="fa-solid fa-file-csv text-emerald-300"></i> Descargar gastos (CSV)</button>
+      <button onclick="downloadAgreementPdf()" class="menu-link"><i class="fa-solid fa-file-pdf text-rose-300"></i> Descargar acuerdo (PDF)</button>
+      <p class="mt-2 text-[10px] leading-relaxed text-slate-500">El acuerdo se genera como borrador con espacios para completar y revisar antes de firmar.</p>
+    </section>
+  </aside>
 
   <!-- ==================== CONTENEDOR PRINCIPAL ==================== -->
   <main class="max-w-7xl mx-auto px-4 sm:px-6 pt-5 pb-8 space-y-5 flex-1 w-full min-w-0">
@@ -644,7 +701,7 @@
           <div class="p-4 rounded-xl bg-slate-900/90 border border-emerald-500/30">
             <div class="flex items-center justify-between pb-2 border-b border-slate-800">
               <span class="text-xs font-bold text-white flex items-center gap-1.5">
-                <i class="fa-solid fa-user-tie text-emerald-400"></i> Socio inversionista
+                <i class="fa-solid fa-user-tie text-emerald-400"></i> <span id="partnerSocioLabel">Socio inversionista</span>
               </span>
               <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold">50% Ganancia</span>
             </div>
@@ -672,7 +729,7 @@
           <div class="p-4 rounded-xl bg-slate-900/90 border border-blue-500/30">
             <div class="flex items-center justify-between pb-2 border-b border-slate-800">
               <span class="text-xs font-bold text-white flex items-center gap-1.5">
-                <i class="fa-solid fa-user-gear text-blue-400"></i> Socia gestora
+                <i class="fa-solid fa-user-gear text-blue-400"></i> <span id="partnerSociaLabel">Socia gestora</span>
               </span>
               <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold">50% Ganancia</span>
             </div>
@@ -962,7 +1019,8 @@
           marketBenchFasecolda: 'Sin configurar'
         }
       ],
-      expenses: []
+      expenses: [],
+      partners: { Socia: { name: 'Socia', photo: '' }, Socio: { name: 'Socio', photo: '' } }
     };
 
     function initApp() {
@@ -975,6 +1033,7 @@
           window.appState.totalPartnerAdvance = Number(parsed.totalPartnerAdvance || 0);
           window.appState.monthlyFinanceFee = Number(parsed.monthlyFinanceFee || 0);
           window.appState.monthlyFinanceDueDay = Number(parsed.monthlyFinanceDueDay || 1);
+          window.appState.partners = normalizePartners(parsed.partners || window.appState.partners);
           window.appState.currentUserRole = parsed.currentUserRole === 'Socio' ? 'Socio' : 'Socia';
           const rememberedRole = localStorage.getItem('autokonta_user_role');
           if (rememberedRole === 'Socia' || rememberedRole === 'Socio') window.appState.currentUserRole = rememberedRole;
@@ -989,6 +1048,7 @@
       }
 
       setTodayDates();
+      renderPartnerProfiles();
       setUserRole(window.appState.currentUserRole);
       renderVehicleSelector();
       switchActiveVehicle(window.appState.activeVehicleId);
@@ -1017,7 +1077,8 @@
         totalPartnerAdvance: window.appState.totalPartnerAdvance,
         monthlyFinanceFee: window.appState.monthlyFinanceFee,
         monthlyFinanceDueDay: window.appState.monthlyFinanceDueDay,
-        currentUserRole: window.appState.currentUserRole
+        currentUserRole: window.appState.currentUserRole,
+        partners: window.appState.partners
       }));
 
       playSaveDriveAnimation();
@@ -1040,6 +1101,167 @@
 
     function isDemoVehicle(vehicle = getActiveVehicle()) {
       return !vehicle || vehicle.id === "veh-demo";
+    }
+
+    function normalizePartners(partners) {
+      const clean = {};
+      ['Socia', 'Socio'].forEach(role => {
+        const item = partners && partners[role] ? partners[role] : {};
+        const photo = typeof item.photo === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(item.photo) && item.photo.length < 180000 ? item.photo : '';
+        clean[role] = { name: String(item.name || role).trim().slice(0, 60) || role, photo };
+      });
+      return clean;
+    }
+
+    function getPartnerName(role) {
+      const safeRole = role === 'Socio' ? 'Socio' : 'Socia';
+      return window.appState.partners?.[safeRole]?.name || safeRole;
+    }
+
+    function renderPartnerProfiles() {
+      window.appState.partners = normalizePartners(window.appState.partners);
+      ['Socia', 'Socio'].forEach(role => {
+        const key = role === 'Socia' ? 'Socia' : 'Socio';
+        const profile = window.appState.partners[key];
+        const nameInput = document.getElementById(`profileName${key}`);
+        if (nameInput && document.activeElement !== nameInput) nameInput.value = profile.name;
+        const photo = document.getElementById(`profilePhoto${key}`);
+        const initial = document.getElementById(`profileInitial${key}`);
+        if (photo && initial) {
+          if (profile.photo) { photo.src = profile.photo; photo.classList.remove('hidden'); initial.classList.add('hidden'); }
+          else { photo.removeAttribute('src'); photo.classList.add('hidden'); initial.textContent = profile.name.charAt(0).toUpperCase() || key.charAt(0); initial.classList.remove('hidden'); }
+        }
+        const headerName = document.getElementById(`roleName${key}`);
+        if (headerName) headerName.textContent = profile.name;
+        const summaryName = document.getElementById(`partner${key}Label`);
+        if (summaryName) summaryName.textContent = `${profile.name} · ${role === 'Socio' ? 'socio inversionista' : 'socia gestora'}`;
+      });
+      const roleLabel = document.getElementById('currentRoleLabel');
+      if (roleLabel) roleLabel.textContent = `Próximo registro: ${getPartnerName(window.appState.currentUserRole)}. No cambia el reparto.`;
+    }
+
+    function toggleSideMenu(open) {
+      document.getElementById('sideDrawer')?.classList.toggle('open', Boolean(open));
+      document.getElementById('menuBackdrop')?.classList.toggle('open', Boolean(open));
+    }
+
+    function navigateMenu(destination) {
+      toggleSideMenu(false);
+      if (destination === 'home') { document.getElementById('appShell').scrollIntoView({ behavior: 'smooth' }); return; }
+      switchTab(destination);
+      document.getElementById(destination)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function savePartnerProfiles() {
+      ['Socia', 'Socio'].forEach(role => {
+        const input = document.getElementById(`profileName${role}`);
+        const name = input?.value.trim();
+        if (name) window.appState.partners[role].name = name.slice(0, 60);
+      });
+      renderPartnerProfiles();
+      saveState();
+    }
+
+    function selectPartnerProfile(role) {
+      savePartnerProfiles();
+      setUserRole(role);
+      toggleSideMenu(false);
+    }
+
+    function handlePartnerPhoto(role, event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { alert('Elige un archivo de imagen.'); event.target.value = ''; return; }
+      if (file.size > 10 * 1024 * 1024) { alert('La foto debe pesar menos de 10 MB.'); event.target.value = ''; return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement('canvas');
+          const scale = Math.min(1, 320 / Math.max(image.width, image.height));
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+          const compressedPhoto = canvas.toDataURL('image/jpeg', 0.62);
+          if (compressedPhoto.length > 90000) { alert('La imagen aún queda muy pesada para sincronizar. Prueba con una foto más pequeña.'); event.target.value = ''; return; }
+          window.appState.partners[role].photo = compressedPhoto;
+          renderPartnerProfiles();
+          saveState();
+          event.target.value = '';
+        };
+        image.onerror = () => alert('No se pudo leer esa imagen. Prueba con otra foto.');
+        image.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function downloadBlob(blob, fileName) {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    }
+
+    function downloadAppData() {
+      const backup = { app: 'AutoKonta Pro', exportedAt: new Date().toISOString(), ...window.appState };
+      downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' }), `autokonta-respaldo-${localDateInputValue()}.json`);
+    }
+
+    function downloadExpensesCsv() {
+      const rows = [['Fecha', 'Vehículo', 'Concepto', 'Categoría', 'Soporte', 'Registró', 'Valor COP']];
+      window.appState.expenses.forEach(item => {
+        const vehicle = window.appState.stockVehicles.find(v => v.id === item.vehicleId);
+        rows.push([item.date || '', vehicle ? `${vehicle.plate} ${vehicle.title}` : '', item.desc || '', item.cat || '', item.hasPhoto ? 'Sí' : 'No', item.createdBy || '', Number(item.amount) || 0]);
+      });
+      const csv = '\uFEFF' + rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+      downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `autokonta-gastos-${localDateInputValue()}.csv`);
+    }
+
+    function downloadAgreementPdf() {
+      if (!window.jspdf?.jsPDF) { alert('No se pudo cargar el creador de PDF. Revisa tu conexión e inténtalo de nuevo.'); return; }
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: 'mm', format: 'letter' });
+      const left = 18, right = 198, width = right - left;
+      let y = 20;
+      const addText = (text, size = 10, bold = false, gap = 2) => {
+        pdf.setFont('helvetica', bold ? 'bold' : 'normal'); pdf.setFontSize(size);
+        const lines = pdf.splitTextToSize(text, width);
+        if (y + lines.length * (size * .48) > 260) { pdf.addPage(); y = 20; }
+        pdf.text(lines, left, y); y += lines.length * (size * .48) + gap;
+      };
+      pdf.setFillColor(6, 11, 22); pdf.rect(0, 0, 216, 31, 'F');
+      pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(17); pdf.text('AUTOKONTA PRO', left, 14);
+      pdf.setTextColor(56, 189, 248); pdf.setFontSize(10); pdf.text('BORRADOR DE ACUERDO OPERATIVO', left, 23);
+      pdf.setTextColor(30, 41, 59); y = 42;
+      addText('DOCUMENTO DE TRABAJO - PENDIENTE DE REVISIÓN Y ACEPTACIÓN', 11, true, 4);
+      addText(`Fecha de generación: ${new Intl.DateTimeFormat('es-CO', { dateStyle: 'long' }).format(new Date())}`, 9, false, 4);
+      addText('PARTES', 11, true, 1);
+      addText(`Socia: ${getPartnerName('Socia')}   Documento: ______________________________`);
+      addText(`Socio: ${getPartnerName('Socio')}   Documento: ______________________________`, 10, false, 4);
+      addText('PROPÓSITO', 11, true, 1);
+      addText('Las partes desean dejar por escrito las reglas operativas para evaluar, comprar, preparar y vender vehículos usados, y llevar un registro compartido de aportes y gastos en AutoKonta Pro. La ciudad y los datos de cada operación se completarán en sus registros correspondientes.', 10, false, 4);
+      addText('REGLAS DE TRABAJO PROPUESTAS', 11, true, 1);
+      addText('1. Cada vehículo se registra con identificación, precio de compra, precio de venta esperado, fecha y gastos relacionados. Las partes revisan y aceptan por escrito cada operación antes de comprometer recursos.');
+      addText('2. El modelo actual de AutoKonta calcula el retorno del capital de compra registrado y los costos financieros aplicables antes de determinar la utilidad neta. Los gastos operativos soportados se descuentan de la venta.');
+      addText('3. La utilidad neta positiva que las partes confirmen para cada vehículo se distribuye en partes iguales: 50% para cada integrante. Las pérdidas, aportes adicionales, gastos sin soporte, impuestos y cualquier excepción deben acordarse expresamente para cada caso.');
+      addText('4. Ambas partes podrán revisar el registro de vehículos, aportes, gastos y soportes. Cada gasto debe indicar fecha, concepto, valor, vehículo relacionado y quién lo registró.');
+      addText('5. Los perfiles “Socia” y “Socio” identifican quién registra una actividad en la aplicación; por sí solos no modifican porcentajes, aportes ni obligaciones.');
+      addText('6. Si hay diferencias, las partes procurarán revisar primero los soportes y llegar a un acuerdo escrito antes de cerrar la liquidación de un vehículo.');
+      addText('DATOS PENDIENTES DE COMPLETAR', 11, true, 1);
+      addText('Ciudad y lugar de firma: ____________________________________    Fecha acordada: __________________');
+      addText('Reglas adicionales (plazos, aprobación de compras, manejo de pérdidas e impuestos):');
+      addText('________________________________________________________________________________');
+      addText('________________________________________________________________________________', 10, false, 4);
+      if (y > 225) { pdf.addPage(); y = 25; }
+      addText('FIRMAS (solo después de revisar y acordar el texto)', 11, true, 18);
+      pdf.setDrawColor(100, 116, 139); pdf.line(left, y, 95, y); pdf.line(112, y, right, y);
+      y += 5; addText(`${getPartnerName('Socia')} - Socia`, 9, false, 2); pdf.text(`${getPartnerName('Socio')} - Socio`, 112, y - 2);
+      y += 3; pdf.setFontSize(8); pdf.text('Documento: __________________________', left, y); pdf.text('Documento: __________________________', 112, y);
+      pdf.setFontSize(8); pdf.setTextColor(100, 116, 139); pdf.text('Borrador generado por AutoKonta Pro. No constituye un acuerdo aceptado ni firmado.', left, 273);
+      pdf.save(`autokonta-borrador-acuerdo-${localDateInputValue()}.pdf`);
     }
 
     function playSaveDriveAnimation() {
@@ -1069,7 +1291,7 @@
         bSocio.className = window.appState.currentUserRole === "Socio" ? activeClasses : idleClasses;
       }
       const label = document.getElementById("currentRoleLabel");
-      if (label) label.innerText = `Próximo registro: ${window.appState.currentUserRole}. No cambia el reparto.`;
+      if (label) label.innerText = `Próximo registro: ${getPartnerName(window.appState.currentUserRole)}. No cambia el reparto.`;
       localStorage.setItem('autokonta_user_role', window.appState.currentUserRole);
     }
 
@@ -1297,7 +1519,7 @@
         cat: 'Caja Menor (Sin Factura)',
         date: localDateInputValue(),
         hasPhoto: false,
-        createdBy: window.appState.currentUserRole
+        createdBy: getPartnerName(window.appState.currentUserRole)
       };
       window.appState.expenses.unshift(newExp);
       saveState();
@@ -1322,7 +1544,7 @@
         cat,
         date,
         hasPhoto: hasPhoto === "SI",
-        createdBy: window.appState.currentUserRole
+        createdBy: getPartnerName(window.appState.currentUserRole)
       };
 
       window.appState.expenses.unshift(newExp);
@@ -1440,7 +1662,7 @@
           cat: 'Traspaso / Tránsito',
           date: receiptDate,
           hasPhoto: true,
-          createdBy: window.appState.currentUserRole
+          createdBy: getPartnerName(window.appState.currentUserRole)
         });
         saveState();
         renderAll();
